@@ -1,13 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from 'react-query';
 import { tmdbApi } from '../lib/axios';
 import { useUser } from '@clerk/clerk-react';
 import { useWatchLater } from '../hooks/useWatchLater';
-import { Bookmark, BookmarkCheck, ArrowLeft, Star, Calendar, Clock, Film, Tv } from 'lucide-react';
+import { useHiddenGems } from '../hooks/useHiddenGems';
+import { useWatchStatus } from '../hooks/useWatchStatus';
+import { useReviews } from '../hooks/useReviews';
+import { Bookmark, BookmarkCheck, ArrowLeft, Star, Calendar, Clock, Film, Tv, Gem, Eye, AlertTriangle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
+import { ReviewForm } from './ReviewForm';
+import { ReviewList } from './ReviewList';
 
 interface MovieDetailsPageProps {
   type: 'movie' | 'tv';
@@ -15,8 +20,15 @@ interface MovieDetailsPageProps {
 
 export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({ type }) => {
   const { id } = useParams<{ id: string }>();
-  const { isSignedIn } = useUser();
+  const { isSignedIn, user } = useUser();
   const { watchLaterItems, addToWatchLater, removeFromWatchLater } = useWatchLater();
+  const { hiddenGems, addToHiddenGems, removeFromHiddenGems } = useHiddenGems();
+  const { watchStatusItems, updateWatchStatus } = useWatchStatus();
+  const { getUserReviewForMedia } = useReviews();
+  
+  const [showReviewForm, setShowReviewForm] = useState(false);
+  const [showHiddenGemForm, setShowHiddenGemForm] = useState(false);
+  const [gemNotes, setGemNotes] = useState('');
 
   const { data: details, isLoading } = useQuery(
     [`${type}Details`, id],
@@ -51,8 +63,18 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({ type }) => {
     }
   );
 
+  const { data: userReview } = getUserReviewForMedia(Number(id), type);
+
   const isInWatchLater = watchLaterItems?.some(
     (watchItem) => watchItem.media_id === Number(id)
+  );
+
+  const isHiddenGem = hiddenGems?.some(
+    (gemItem) => gemItem.media_id === Number(id)
+  );
+
+  const watchStatus = watchStatusItems?.find(
+    (statusItem) => statusItem.media_id === Number(id)
   );
 
   const handleWatchLater = () => {
@@ -69,6 +91,42 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({ type }) => {
         mediaType: type,
       });
     }
+  };
+
+  const handleHiddenGem = () => {
+    if (!isSignedIn) {
+      toast.error('Please sign in to add to your hidden gems');
+      return;
+    }
+    
+    if (isHiddenGem) {
+      removeFromHiddenGems.mutate(Number(id));
+    } else {
+      setShowHiddenGemForm(true);
+    }
+  };
+
+  const handleAddHiddenGem = () => {
+    addToHiddenGems.mutate({
+      mediaId: Number(id),
+      mediaType: type,
+      notes: gemNotes
+    });
+    setShowHiddenGemForm(false);
+    setGemNotes('');
+  };
+
+  const handleWatchStatus = (status: 'planned' | 'watched') => () => {
+    if (!isSignedIn) {
+      toast.error('Please sign in to update watch status');
+      return;
+    }
+    
+    updateWatchStatus.mutate({
+      mediaId: Number(id),
+      mediaType: type,
+      status
+    });
   };
 
   if (isLoading) {
@@ -121,7 +179,7 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({ type }) => {
 
       {/* Backdrop and basic info */}
       <div className="relative rounded-xl overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/70 to-transparent z-10" />
+      <div className="absolute inset-0 bg-gradient-to-t from-gray-900 via-gray-900/70 to-transparent z-10"></div>
         
         {details.backdrop_path ? (
           <img 
@@ -178,6 +236,24 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({ type }) => {
                   )}
                   <span className="capitalize">{type}</span>
                 </div>
+                
+                {watchStatus && (
+                  <div className={`flex items-center px-2 py-1 rounded-md ${
+                    watchStatus.status === 'watched' ? 'bg-green-600/80' : 'bg-blue-600/80'
+                  }`}>
+                    {watchStatus.status === 'watched' ? (
+                      <>
+                        <Eye size={14} className="mr-1" />
+                        <span>Watched</span>
+                      </>
+                    ) : (
+                      <>
+                        <Clock size={14} className="mr-1" />
+                        <span>Planned</span>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               
               <div className="flex flex-wrap gap-2 mb-4">
@@ -191,26 +267,40 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({ type }) => {
                 ))}
               </div>
               
-              <button
-                onClick={handleWatchLater}
-                className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
-                  isInWatchLater
-                    ? 'bg-purple-600 hover:bg-purple-700'
-                    : 'bg-blue-600 hover:bg-blue-700'
-                } text-white`}
-              >
-                {isInWatchLater ? (
-                  <>
-                    <BookmarkCheck size={20} />
-                    <span>Added to Watch Later</span>
-                  </>
-                ) : (
-                  <>
-                    <Bookmark size={20} />
-                    <span>Add to Watch Later</span>
-                  </>
-                )}
-              </button>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleWatchLater}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                    isInWatchLater
+                      ? 'bg-purple-600 hover:bg-purple-700'
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  } text-white`}
+                >
+                  {isInWatchLater ? (
+                    <>
+                      <BookmarkCheck size={20} />
+                      <span>Added to Watch Later</span>
+                    </>
+                  ) : (
+                    <>
+                      <Bookmark size={20} />
+                      <span>Add to Watch Later</span>
+                    </>
+                  )}
+                </button>
+                
+                <button
+                  onClick={handleHiddenGem}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                    isHiddenGem
+                      ? 'bg-amber-600 hover:bg-amber-700'
+                      : 'bg-gray-700 hover:bg-gray-600'
+                  } text-white`}
+                >
+                  <Gem size={20} />
+                  <span>{isHiddenGem ? 'Remove from Hidden Gems' : 'Add to Hidden Gems'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -225,6 +315,64 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({ type }) => {
             <p className="text-gray-300 leading-relaxed">
               {details.overview || 'No overview available.'}
             </p>
+          </section>
+          
+          {/* Watch Status */}
+          <section className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+            <h2 className="text-xl font-bold text-white mb-4">Watch Status</h2>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={handleWatchStatus('watched')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                  watchStatus?.status === 'watched'
+                    ? 'bg-green-600 hover:bg-green-700'
+                    : 'bg-gray-700 hover:bg-gray-600'
+                } text-white`}
+              >
+                <Eye size={20} />
+                <span>Watched</span>
+              </button>
+              <button
+                onClick={handleWatchStatus('planned')}
+                className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
+                  watchStatus?.status === 'planned'
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : 'bg-gray-700 hover:bg-gray-600'
+                } text-white`}
+              >
+                <Clock size={20} />
+                <span>Plan to Watch</span>
+              </button>
+            </div>
+          </section>
+          
+          {/* Reviews Section */}
+          <section>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-2xl font-bold text-white">Reviews</h2>
+              {isSignedIn && !showReviewForm && (
+                <button
+                  onClick={() => setShowReviewForm(true)}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                >
+                  {userReview ? 'Edit Your Review' : 'Write a Review'}
+                </button>
+              )}
+            </div>
+            
+            {showReviewForm && (
+              <div className="mb-6">
+                <ReviewForm 
+                  mediaId={Number(id)} 
+                  mediaType={type} 
+                  existingReview={userReview}
+                  onCancel={() => setShowReviewForm(false)}
+                  onSuccess={() => setShowReviewForm(false)}
+                />
+              </div>
+            )}
+            
+            <ReviewList mediaId={Number(id)} mediaType={type} />
           </section>
           
           {/* Cast */}
@@ -320,6 +468,40 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({ type }) => {
               )}
             </dl>
           </section>
+          
+          {/* User Rating */}
+          {userReview && (
+            <section className="bg-gray-800 rounded-xl p-6 border border-gray-700">
+              <h2 className="text-xl font-bold text-white mb-4">Your Rating</h2>
+              <div className="flex items-center mb-2">
+                {[...Array(10)].map((_, i) => (
+                  <Star
+                    key={i}
+                    size={24}
+                    className={i < userReview.rating ? "text-yellow-500 fill-yellow-500" : "text-gray-500"}
+                  />
+                ))}
+                <span className="ml-2 text-white font-bold">{userReview.rating}/10</span>
+              </div>
+              {userReview.review_text && (
+                <div className="mt-3">
+                  {userReview.contains_spoilers && (
+                    <div className="flex items-center text-amber-500 mb-2">
+                      <AlertTriangle size={16} className="mr-1" />
+                      <span className="text-sm">Contains spoilers</span>
+                    </div>
+                  )}
+                  <p className="text-gray-300">{userReview.review_text}</p>
+                </div>
+              )}
+              <button
+                onClick={() => setShowReviewForm(true)}
+                className="mt-4 px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
+              >
+                Edit Review
+              </button>
+            </section>
+          )}
         </div>
       </div>
       
@@ -361,6 +543,40 @@ export const MovieDetailsPage: React.FC<MovieDetailsPageProps> = ({ type }) => {
           </div>
         </section>
       )}
+      
+      {/* Hidden Gem Notes Modal */}
+      {showHiddenGemForm && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setShowHiddenGemForm(false)}>
+          <div className="bg-gray-900 rounded-xl max-w-md w-full border border-gray-700 p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-white mb-4">Add to Hidden Gems</h3>
+            <p className="text-gray-300 mb-4">Why do you consider this a hidden gem? (optional)</p>
+            
+            <textarea
+              value={gemNotes}
+              onChange={(e) => setGemNotes(e.target.value)}
+              placeholder="What makes this special? (optional)"
+              className="w-full px-4 py-2 rounded-lg border border-gray-700 bg-gray-800 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+              rows={4}
+            />
+            
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowHiddenGemForm(false)}
+                className="px-4 py-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddHiddenGem}
+                className="px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition-colors"
+              >
+                Add to Hidden Gems
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+  

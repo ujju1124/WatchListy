@@ -1,18 +1,22 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from 'react-query';
 import { tmdbApi } from '../lib/axios';
 import { useWatchLater } from '../hooks/useWatchLater';
+import { useWatchStatus } from '../hooks/useWatchStatus';
 import { MediaCard } from './MediaCard';
 import type { MediaItem, Genre } from '../types/tmdb';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 import { useUser } from '@clerk/clerk-react';
 import { SignInButton } from '@clerk/clerk-react';
-import { Bookmark } from 'lucide-react';
+import { Bookmark, Eye, Clock } from 'lucide-react';
+import { Tabs } from './ui/Tabs';
 
 export const WatchLaterPage = () => {
   const { isSignedIn } = useUser();
   const { watchLaterItems, isLoading: isLoadingWatchList } = useWatchLater();
+  const { watchStatusItems } = useWatchStatus();
+  const [activeTab, setActiveTab] = useState('all');
 
   // Fetch genres for both movies and TV shows
   const { data: movieGenres } = useQuery<{ genres: Genre[] }>(
@@ -40,7 +44,7 @@ export const WatchLaterPage = () => {
   }, [movieGenres, tvGenres]);
 
   const { data: mediaItems, isLoading: isLoadingDetails } = useQuery(
-    ['watchLaterDetails', watchLaterItems],
+    ['watchLaterDetails', watchLaterItems, watchStatusItems],
     async () => {
       if (!watchLaterItems?.length) return [];
       
@@ -50,10 +54,17 @@ export const WatchLaterPage = () => {
             const { data } = await tmdbApi.get(`/${item.media_type}/${item.media_id}`);
             // Get genre IDs for the item
             const genreIds = data.genres?.map((g: Genre) => g.id) || [];
+            
+            // Find watch status for this item
+            const status = watchStatusItems?.find(
+              statusItem => statusItem.media_id === item.media_id
+            )?.status;
+            
             return { 
               ...data, 
               media_type: item.media_type,
-              genre_ids: genreIds
+              genre_ids: genreIds,
+              watch_status: status
             };
           } catch (error) {
             console.error(`Error fetching details for ${item.media_type}/${item.media_id}:`, error);
@@ -62,7 +73,7 @@ export const WatchLaterPage = () => {
         })
       );
       
-      return items.filter(Boolean) as MediaItem[];
+      return items.filter(Boolean) as (MediaItem & { watch_status?: string })[];
     },
     {
       enabled: !!watchLaterItems?.length,
@@ -70,6 +81,22 @@ export const WatchLaterPage = () => {
   );
 
   const isLoading = isLoadingWatchList || isLoadingDetails;
+
+  // Filter items based on active tab
+  const filteredItems = React.useMemo(() => {
+    if (!mediaItems) return [];
+    
+    switch (activeTab) {
+      case 'watched':
+        return mediaItems.filter(item => item.watch_status === 'watched');
+      case 'planned':
+        return mediaItems.filter(item => item.watch_status === 'planned');
+      case 'untracked':
+        return mediaItems.filter(item => !item.watch_status);
+      default:
+        return mediaItems;
+    }
+  }, [mediaItems, activeTab]);
 
   if (!isSignedIn) {
     return (
@@ -108,14 +135,49 @@ export const WatchLaterPage = () => {
     );
   }
 
+  // Count items for each status
+  const counts = {
+    all: mediaItems.length,
+    watched: mediaItems.filter(item => item.watch_status === 'watched').length,
+    planned: mediaItems.filter(item => item.watch_status === 'planned').length,
+    untracked: mediaItems.filter(item => !item.watch_status).length
+  };
+
+  const tabs = [
+    { id: 'all', label: `All (${counts.all})` },
+    { id: 'watched', label: `Watched (${counts.watched})` },
+    { id: 'planned', label: `Planned (${counts.planned})` },
+    { id: 'untracked', label: `Untracked (${counts.untracked})` }
+  ];
+
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-bold text-white">Watch Later</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {mediaItems.map((item) => (
-          <MediaCard key={item.id} item={item} genreMap={allGenres} />
-        ))}
+      <div className="flex items-center justify-between">
+        <h2 className="text-3xl font-bold text-white">Watch Later</h2>
+        <div className="text-gray-400 text-sm flex items-center space-x-2">
+          <span className="flex items-center"><Eye size={14} className="mr-1 text-green-500" /> Watched</span>
+          <span className="flex items-center"><Clock size={14} className="mr-1 text-blue-500" /> Planned</span>
+        </div>
       </div>
+      
+      <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+      
+      {filteredItems.length === 0 ? (
+        <div className="text-center py-12 bg-gray-800 rounded-xl border border-gray-700">
+          <h3 className="text-xl font-semibold text-gray-300">No items in this category</h3>
+          <p className="text-gray-400 mt-2">
+            {activeTab === 'watched' && "You haven't marked any items as watched yet."}
+            {activeTab === 'planned' && "You haven't planned any items to watch yet."}
+            {activeTab === 'untracked' && "All your items have been categorized."}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {filteredItems.map((item) => (
+            <MediaCard key={item.id} item={item} genreMap={allGenres} />
+          ))}
+        </div>
+      )}
     </div>
   );
-}
+};
