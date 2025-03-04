@@ -8,9 +8,9 @@ import { HomePage } from './components/HomePage';
 import { WatchLaterPage } from './components/WatchLaterPage';
 import { HiddenGemsPage } from './components/HiddenGemsPage';
 import { MovieDetailsPage } from './components/MovieDetailsPage';
-import { PrivacyPolicy } from './pages/PrivacyPolicy';
-import { TermsOfService } from './pages/TermsOfService';
-import { Contact } from './pages/Contact';
+import { PrivacyPolicy } from './Pages/PrivacyPolicy';
+import { TermsOfService } from './Pages/TermsOfService';
+import { Contact } from './Pages/Contact';
 
 const queryClient = new QueryClient({
   defaultOptions: {
